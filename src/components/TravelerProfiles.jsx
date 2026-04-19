@@ -7,13 +7,13 @@ const defaultNew = () => ({ name: '', role: 'adult', age: 30, alwaysPack: [] })
 export default function TravelerProfiles({ travelers, onUpdate }) {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(defaultNew())
-  const [newPackItem, setNewPackItem] = useState('')
+  const [newPackItem, setNewPackItem] = useState({ item: '', condition: '' })
 
   function addPackItem() {
-    const trimmed = newPackItem.trim()
+    const trimmed = newPackItem.item.trim()
     if (trimmed) {
-      setForm(f => ({ ...f, alwaysPack: [...f.alwaysPack, trimmed] }))
-      setNewPackItem('')
+      setForm(f => ({ ...f, alwaysPack: [...f.alwaysPack, { item: trimmed, condition: newPackItem.condition.trim() }] }))
+      setNewPackItem({ item: '', condition: '' })
     }
   }
 
@@ -21,13 +21,13 @@ export default function TravelerProfiles({ travelers, onUpdate }) {
     if (!form.name.trim()) return
     onUpdate([...travelers, { ...form, name: form.name.trim(), id: uuid() }])
     setForm(defaultNew())
-    setNewPackItem('')
+    setNewPackItem({ item: '', condition: '' })
     setShowForm(false)
   }
 
   function cancelForm() {
     setForm(defaultNew())
-    setNewPackItem('')
+    setNewPackItem({ item: '', condition: '' })
     setShowForm(false)
   }
 
@@ -77,20 +77,28 @@ export default function TravelerProfiles({ travelers, onUpdate }) {
             <label>Always pack</label>
             {form.alwaysPack.length > 0 && (
               <div className="tag-list" style={{ marginBottom: 8 }}>
-                {form.alwaysPack.map((item, i) => (
-                  <span key={i} className="tag">
-                    {item}
+                {form.alwaysPack.map((p, i) => (
+                  <span key={i} className={`tag${p.condition ? ' conditional' : ''}`}>
+                    {p.item}
+                    {p.condition && <span className="tag-condition"> · if {p.condition}</span>}
                     <button onClick={() => setForm(f => ({ ...f, alwaysPack: f.alwaysPack.filter((_, j) => j !== i) }))}>×</button>
                   </span>
                 ))}
               </div>
             )}
-            <div className="tag-add-row">
+            <div className="pack-item-form">
               <input
                 className="form-input"
-                placeholder="e.g. Favorite stuffed animal"
-                value={newPackItem}
-                onChange={e => setNewPackItem(e.target.value)}
+                placeholder="Item name"
+                value={newPackItem.item}
+                onChange={e => setNewPackItem(n => ({ ...n, item: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') addPackItem() }}
+              />
+              <input
+                className="form-input"
+                placeholder="Condition (optional, e.g. beach trip)"
+                value={newPackItem.condition}
+                onChange={e => setNewPackItem(n => ({ ...n, condition: e.target.value }))}
                 onKeyDown={e => { if (e.key === 'Enter') addPackItem() }}
               />
               <button className="btn-sm" onClick={addPackItem}>Add</button>

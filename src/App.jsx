@@ -4,13 +4,37 @@ import TravelerProfiles from './components/TravelerProfiles'
 import FamilyRules from './components/FamilyRules'
 import TripForm from './components/TripForm'
 import TripView from './components/TripView'
+import PasswordGate from './components/PasswordGate'
 import './App.css'
 
 export default function App() {
+  const appPassword = import.meta.env.VITE_APP_PASSWORD ?? ''
+  const [unlockToken, setUnlockToken] = useState(() => {
+    try { return localStorage.getItem('ftp_unlock') ?? '' } catch { return '' }
+  })
+  const isUnlocked = !!appPassword && unlockToken === appPassword
+
+  if (!isUnlocked) {
+    return (
+      <PasswordGate
+        onUnlock={pw => {
+          try { localStorage.setItem('ftp_unlock', pw) } catch { /* ignore */ }
+          setUnlockToken(pw)
+        }}
+      />
+    )
+  }
+
+  return <AppContent />
+}
+
+function AppContent() {
   const [travelers, setTravelers] = useLocalStorage('ftp_travelers', [])
   const [familyRules, setFamilyRules] = useLocalStorage('ftp_rules', [])
   const [trips, setTrips] = useLocalStorage('ftp_trips', [])
   const [view, setView] = useState({ type: 'trips' })
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState([])
 
   function saveTrip(newTrip) {
     setTrips(ts => [...ts, newTrip])
@@ -19,6 +43,23 @@ export default function App() {
 
   function updateTrip(updatedTrip) {
     setTrips(ts => ts.map(t => t.id === updatedTrip.id ? updatedTrip : t))
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelectedIds([])
+  }
+
+  function toggleSelected(id) {
+    setSelectedIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id])
+  }
+
+  function deleteSelected() {
+    if (selectedIds.length === 0) return
+    const n = selectedIds.length
+    if (!confirm(`Delete ${n} trip${n === 1 ? '' : 's'}? This cannot be undone.`)) return
+    setTrips(ts => ts.filter(t => !selectedIds.includes(t.id)))
+    exitSelectMode()
   }
 
   const activeTrip = view.type === 'trip' ? trips.find(t => t.id === view.tripId) : null
@@ -69,9 +110,27 @@ export default function App() {
           <div className="section">
             <div className="section-header">
               <h2>Trips</h2>
-              <button className="btn-primary small" onClick={() => setView({ type: 'new-trip' })}>
-                + Plan Trip
-              </button>
+              {selectMode ? (
+                <div className="section-header-actions">
+                  <button className="btn-ghost" onClick={exitSelectMode}>Cancel</button>
+                  <button
+                    className="btn-danger small"
+                    onClick={deleteSelected}
+                    disabled={selectedIds.length === 0}
+                  >
+                    Delete{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+                  </button>
+                </div>
+              ) : (
+                <div className="section-header-actions">
+                  {trips.length > 0 && (
+                    <button className="btn-ghost" onClick={() => setSelectMode(true)}>Select</button>
+                  )}
+                  <button className="btn-primary small" onClick={() => setView({ type: 'new-trip' })}>
+                    + Plan Trip
+                  </button>
+                </div>
+              )}
             </div>
 
             {trips.length === 0 && (
@@ -85,7 +144,16 @@ export default function App() {
               <div className="trip-group">
                 <h3 className="trip-group-label">Upcoming</h3>
                 {upcomingTrips.map(t => (
-                  <TripCard key={t.id} trip={t} onClick={() => setView({ type: 'trip', tripId: t.id })} />
+                  <TripCard
+                    key={t.id}
+                    trip={t}
+                    selectMode={selectMode}
+                    selected={selectedIds.includes(t.id)}
+                    onClick={() => selectMode
+                      ? toggleSelected(t.id)
+                      : setView({ type: 'trip', tripId: t.id })
+                    }
+                  />
                 ))}
               </div>
             )}
@@ -94,7 +162,16 @@ export default function App() {
               <div className="trip-group">
                 <h3 className="trip-group-label">Past</h3>
                 {pastTrips.map(t => (
-                  <TripCard key={t.id} trip={t} onClick={() => setView({ type: 'trip', tripId: t.id })} />
+                  <TripCard
+                    key={t.id}
+                    trip={t}
+                    selectMode={selectMode}
+                    selected={selectedIds.includes(t.id)}
+                    onClick={() => selectMode
+                      ? toggleSelected(t.id)
+                      : setView({ type: 'trip', tripId: t.id })
+                    }
+                  />
                 ))}
               </div>
             )}
@@ -113,7 +190,7 @@ export default function App() {
       <nav className="bottom-nav">
         <button
           className={`nav-btn${activeTab === 'trips' ? ' active' : ''}`}
-          onClick={() => setView({ type: 'trips' })}
+          onClick={() => { exitSelectMode(); setView({ type: 'trips' }) }}
         >
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <rect x="2" y="7" width="20" height="14" rx="2"/>
@@ -125,7 +202,7 @@ export default function App() {
 
         <button
           className={`nav-btn${activeTab === 'travelers' ? ' active' : ''}`}
-          onClick={() => setView({ type: 'travelers' })}
+          onClick={() => { exitSelectMode(); setView({ type: 'travelers' }) }}
         >
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
@@ -137,7 +214,7 @@ export default function App() {
 
         <button
           className={`nav-btn${activeTab === 'rules' ? ' active' : ''}`}
-          onClick={() => setView({ type: 'rules' })}
+          onClick={() => { exitSelectMode(); setView({ type: 'rules' }) }}
         >
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <line x1="8" y1="6" x2="21" y2="6"/>
@@ -154,28 +231,44 @@ export default function App() {
   )
 }
 
-function TripCard({ trip, onClick }) {
+function TripCard({ trip, onClick, selectMode = false, selected = false }) {
   const fmt = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   const dateRange = `${fmt(trip.startDate)} – ${fmt(trip.endDate)}`
   const allItems = Object.values(trip.packingList ?? {}).flat()
   const checkedCount = allItems.filter(i => i.checked).length
 
+  const className = [
+    'trip-card',
+    selectMode ? 'select-mode' : '',
+    selected ? 'selected' : '',
+  ].filter(Boolean).join(' ')
+
   return (
     <div
-      className="trip-card"
+      className={className}
       onClick={onClick}
-      role="button"
+      role={selectMode ? 'checkbox' : 'button'}
+      aria-checked={selectMode ? selected : undefined}
       tabIndex={0}
       onKeyDown={e => e.key === 'Enter' && onClick()}
       style={trip.backgroundPhotoUrl ? { backgroundImage: `url(${trip.backgroundPhotoUrl})` } : undefined}
     >
       <div className="trip-card-overlay" />
+      {selectMode && (
+        <div className={`trip-card-checkbox${selected ? ' checked' : ''}`} aria-hidden="true">
+          {selected && (
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="white" strokeWidth="2.4">
+              <path d="M3 8.5L6.5 12L13 4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          )}
+        </div>
+      )}
       <div className="trip-card-content">
         <div className="trip-card-main">
           <h3 className="trip-card-dest">{trip.destination}</h3>
           <p className="trip-card-dates">{dateRange} · {trip.tripType}</p>
         </div>
-        {allItems.length > 0 && (
+        {allItems.length > 0 && !selectMode && (
           <div className="trip-card-progress">
             {checkedCount}/{allItems.length}
           </div>

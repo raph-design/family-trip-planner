@@ -1,15 +1,50 @@
-export async function generatePackingList({ trip, travelers, familyRules, weatherSummary, pastDebriefs }) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('Missing VITE_ANTHROPIC_API_KEY in .env')
+function normalizeAlwaysPack(items) {
+  return (items ?? []).filter(Boolean).map(item =>
+    typeof item === 'string' ? { item, condition: '' } : item
+  )
+}
 
+async function callAnthropic(body) {
+  const res = await fetch('/api/anthropic/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error?.message || `Claude API error ${res.status}`)
+  }
+
+  const data = await res.json()
+  if (data.stop_reason === 'max_tokens') {
+    throw new Error("Claude's response was cut off before it could finish. Try again — or if it keeps happening, upload fewer files or a shorter document.")
+  }
+  return data
+}
+
+function stripJsonFence(raw) {
+  return raw
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/, '')
+    .replace(/\s*```$/, '')
+    .trim()
+}
+
+export async function generatePackingList({ trip, travelers, familyRules, weatherSummary, pastDebriefs }) {
   const start = new Date(trip.startDate)
   const end = new Date(trip.endDate)
   const tripLength = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1)
 
   const travelersText = travelers.length
     ? travelers.map(t => {
-        const packs = (t.alwaysPack ?? []).filter(Boolean)
-        return `- ${t.name} (${t.role}, age ${t.age})${packs.length ? `\n  Always pack: ${packs.join(', ')}` : ''}`
+        const packs = normalizeAlwaysPack(t.alwaysPack)
+        const packLines = packs.length
+          ? '\n  Always pack:\n' + packs.map(p =>
+              p.condition ? `    • ${p.item} (if ${p.condition})` : `    • ${p.item}`
+            ).join('\n')
+          : ''
+        return `- ${t.name} (${t.role}, age ${t.age})${packLines}`
       }).join('\n')
     : 'No specific travelers provided.'
 
@@ -48,51 +83,40 @@ ${rulesText}
 PAST TRIP INSIGHTS (use to improve this list):
 ${debriefsText}
 
-Respond ONLY with a JSON object. Include only relevant categories from: Clothing, Toiletries, Medications, Kids, Entertainment, Documents, Misc. Each value is an array of item name strings. Be specific and include always-pack items from traveler profiles.
+For always-pack items listed with a condition (e.g. "if beach trip" or "if 5+ days"), include the item only if the condition is met for this trip. For unconditional always-pack items, always include them.
 
-Example format: {"Clothing": ["Swimsuit", "Sun hat"], "Toiletries": ["Sunscreen SPF 50"]}`
+Respond ONLY with a JSON object with exactly two top-level keys:
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-allow-browser': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
-      system: [
-        {
-          type: 'text',
-          text: systemPrompt,
-          cache_control: { type: 'ephemeral' }
-        }
-      ],
-      messages: [{ role: 'user', content: userPrompt }]
-    })
+1. "summary" — EXACTLY two sentences of plain prose. Sentence one describes what weather to expect, drawing from the WEATHER FORECAST section above. If the forecast section says it is unavailable, phrase sentence one as "Weather info is unavailable, but it is typically [describe conditions]..." using the historical averages provided. Sentence two describes how the packing list covers that weather — mention the temperature range covered (e.g. "items for the mid-50s through upper-70s") and any weather-specific gear included (rain jackets, layers, sun protection, etc.). Do NOT list items. Keep it conversational.
+
+2. "packingList" — an object whose keys are:
+   - ONE key per traveler, using that traveler's EXACT name as it appears in the TRAVELERS section. Each value is an array of every item that person needs (clothing, toiletries, medications, entertainment, kid gear — anything personal). Include that traveler's always-pack items under their own key.
+   - ONE additional key "Documents" — shared household travel documents (passports, tickets, itineraries, insurance, etc.). This is the only non-person key allowed.
+
+Do NOT group packingList by category (no "Clothing", "Toiletries", "Misc", etc.). Group everything except Documents under the person who needs it. Each value is an array of item name strings.
+
+Example format: {"summary": "Weather info is unavailable, but it is typically warm days and cool evenings in this area. This list covers weather ranges from the mid-50s through the upper-70s with layers for mornings and sun protection for afternoons.", "packingList": {"Raphael": ["Swimsuit", "Running shoes", "Sunscreen SPF 50"], "Vivien": ["Beach dress", "Kids Tylenol", "Stuffed bunny"], "Documents": ["Passports", "Flight confirmation"]}}`
+
+  const data = await callAnthropic({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 8192,
+    system: [
+      {
+        type: 'text',
+        text: systemPrompt,
+        cache_control: { type: 'ephemeral' }
+      }
+    ],
+    messages: [{ role: 'user', content: userPrompt }]
   })
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.error?.message || `Claude API error ${res.status}`)
-  }
-
-  const data = await res.json()
   const raw = data.content?.[0]?.text?.trim() ?? ''
-
-  // Strip markdown code fences if present
-  const jsonText = raw
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/, '')
-    .replace(/\s*```$/, '')
-    .trim()
-
-  const categories = JSON.parse(jsonText)
+  const parsed = JSON.parse(stripJsonFence(raw))
+  const rawList = parsed.packingList ?? parsed
+  const contextSummary = typeof parsed.summary === 'string' ? parsed.summary : ''
 
   const packingList = {}
-  for (const [cat, items] of Object.entries(categories)) {
+  for (const [cat, items] of Object.entries(rawList)) {
     if (Array.isArray(items) && items.length > 0) {
       packingList[cat] = items.map(item => ({
         item: String(item),
@@ -101,5 +125,90 @@ Example format: {"Clothing": ["Swimsuit", "Sun hat"], "Toiletries": ["Sunscreen 
       }))
     }
   }
-  return packingList
+  return { packingList, contextSummary }
+}
+
+export async function extractTripDetails(files) {
+  const contentBlocks = []
+
+  for (const file of files) {
+    if (file.kind === 'text') {
+      contentBlocks.push({ type: 'text', text: `[File: ${file.name}]\n${file.content}` })
+    } else if (file.kind === 'image') {
+      contentBlocks.push({ type: 'image', source: { type: 'base64', media_type: file.mediaType, data: file.content } })
+    } else {
+      contentBlocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.content } })
+    }
+  }
+
+  contentBlocks.push({
+    type: 'text',
+    text: `Extract trip details from the document(s) above. Return valid JSON only — no markdown, no extra text.
+
+Fields:
+- "destination": city or region name (string, or null if not found)
+- "startDate": departure or check-in date in YYYY-MM-DD format (null if not found)
+- "endDate": return or check-out date in YYYY-MM-DD format (null if not found)
+- "tripType": one of "beach", "hiking", "city", "family visit", "other" — infer from context, or null
+- "notes": 1–3 sentence summary of useful details (hotel name, flight info, special considerations) — null if nothing notable
+- "summary": 1–2 sentence human-readable description of what was found
+
+If multiple documents are provided, reconcile them into one coherent itinerary.
+If a field cannot be determined confidently, use null — do not guess.
+Today's date for context: ${new Date().toISOString().split('T')[0]}`
+  })
+
+  const data = await callAnthropic({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: contentBlocks }]
+  })
+
+  const raw = data.content?.[0]?.text?.trim() ?? ''
+  return JSON.parse(stripJsonFence(raw))
+}
+
+export async function refinePackingList({ trip, conversationHistory, userMessage, currentPackingList }) {
+  const listText = Object.entries(currentPackingList)
+    .map(([cat, items]) => `${cat}: ${items.map(i => i.item).join(', ')}`)
+    .join('\n')
+
+  const systemPrompt = `You are a helpful family travel assistant refining a packing list through conversation.
+
+Current packing list:
+${listText}
+
+The packing list is grouped per-person: each key is a traveler's name, plus one shared "Documents" key. Preserve this structure when responding — do NOT introduce category keys like "Clothing" or "Toiletries". Items specific to a person go under that person's name; shared travel documents go under "Documents".
+
+When the user asks for changes, update the full list accordingly and briefly explain what you changed. Always respond with valid JSON only — no markdown, no explanation, no extra text.
+
+Response format: {"message": "One or two sentences explaining changes.", "packingList": {"<TravelerName>": ["item1", "item2"], "Documents": ["Passports", "Tickets"]}}`
+
+  const messages = [
+    ...conversationHistory,
+    { role: 'user', content: userMessage }
+  ]
+
+  const data = await callAnthropic({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 8192,
+    system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+    messages
+  })
+
+  const raw = data.content?.[0]?.text?.trim() ?? ''
+  const { message, packingList: rawList } = JSON.parse(stripJsonFence(raw))
+
+  const packingList = {}
+  for (const [cat, items] of Object.entries(rawList)) {
+    if (Array.isArray(items) && items.length > 0) {
+      packingList[cat] = items.map(item => ({
+        item: String(item),
+        checked: false,
+        addedBy: 'claude'
+      }))
+    }
+  }
+
+  return { message, packingList }
 }

@@ -1,17 +1,22 @@
 import { useState } from 'react'
 
+const normalizeAlwaysPack = items =>
+  (items ?? []).filter(Boolean).map(item =>
+    typeof item === 'string' ? { item, condition: '' } : item
+  )
+
 export default function TravelerCard({ traveler, onUpdate, onDelete }) {
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState({ ...traveler, alwaysPack: [...(traveler.alwaysPack ?? [])] })
-  const [newPackItem, setNewPackItem] = useState('')
+  const [draft, setDraft] = useState({ ...traveler, alwaysPack: normalizeAlwaysPack(traveler.alwaysPack) })
+  const [newPackItem, setNewPackItem] = useState({ item: '', condition: '' })
 
   const initials = traveler.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 
-  function addPackItem(str) {
-    const trimmed = (str ?? newPackItem).trim()
+  function addPackItem() {
+    const trimmed = newPackItem.item.trim()
     if (trimmed) {
-      setDraft(d => ({ ...d, alwaysPack: [...d.alwaysPack, trimmed] }))
-      setNewPackItem('')
+      setDraft(d => ({ ...d, alwaysPack: [...d.alwaysPack, { item: trimmed, condition: newPackItem.condition.trim() }] }))
+      setNewPackItem({ item: '', condition: '' })
     }
   }
 
@@ -23,7 +28,7 @@ export default function TravelerCard({ traveler, onUpdate, onDelete }) {
   }
 
   function cancelEdit() {
-    setDraft({ ...traveler, alwaysPack: [...(traveler.alwaysPack ?? [])] })
+    setDraft({ ...traveler, alwaysPack: normalizeAlwaysPack(traveler.alwaysPack) })
     setEditing(false)
   }
 
@@ -51,22 +56,30 @@ export default function TravelerCard({ traveler, onUpdate, onDelete }) {
         <div className="form-group">
           <label>Always pack</label>
           <div className="tag-list">
-            {draft.alwaysPack.map((item, i) => (
-              <span key={i} className="tag">
-                {item}
+            {draft.alwaysPack.map((p, i) => (
+              <span key={i} className={`tag${p.condition ? ' conditional' : ''}`}>
+                {p.item}
+                {p.condition && <span className="tag-condition"> · if {p.condition}</span>}
                 <button onClick={() => setDraft(d => ({ ...d, alwaysPack: d.alwaysPack.filter((_, j) => j !== i) }))}>×</button>
               </span>
             ))}
           </div>
-          <div className="tag-add-row">
+          <div className="pack-item-form">
             <input
               className="form-input"
-              placeholder="e.g. Migraine medication"
-              value={newPackItem}
-              onChange={e => setNewPackItem(e.target.value)}
+              placeholder="Item name"
+              value={newPackItem.item}
+              onChange={e => setNewPackItem(n => ({ ...n, item: e.target.value }))}
               onKeyDown={e => { if (e.key === 'Enter') addPackItem() }}
             />
-            <button className="btn-sm" onClick={() => addPackItem()}>Add</button>
+            <input
+              className="form-input"
+              placeholder="Condition (optional, e.g. beach trip)"
+              value={newPackItem.condition}
+              onChange={e => setNewPackItem(n => ({ ...n, condition: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') addPackItem() }}
+            />
+            <button className="btn-sm" onClick={addPackItem}>Add</button>
           </div>
         </div>
         <div className="card-actions">
@@ -77,6 +90,8 @@ export default function TravelerCard({ traveler, onUpdate, onDelete }) {
     )
   }
 
+  const displayPacks = normalizeAlwaysPack(traveler.alwaysPack)
+
   return (
     <div className="traveler-card">
       <div className="traveler-avatar">{initials}</div>
@@ -85,16 +100,19 @@ export default function TravelerCard({ traveler, onUpdate, onDelete }) {
           <span className="traveler-name">{traveler.name}</span>
           <span className="traveler-badge">{traveler.role} · {traveler.age}y</span>
         </div>
-        {traveler.alwaysPack?.filter(Boolean).length > 0 && (
+        {displayPacks.length > 0 && (
           <div className="tag-list compact">
-            {traveler.alwaysPack.filter(Boolean).map((item, i) => (
-              <span key={i} className="tag readonly">{item}</span>
+            {displayPacks.map((p, i) => (
+              <span key={i} className={`tag readonly${p.condition ? ' conditional' : ''}`}>
+                {p.item}
+                {p.condition && <span className="tag-condition"> · if {p.condition}</span>}
+              </span>
             ))}
           </div>
         )}
       </div>
       <div className="card-btn-group">
-        <button className="icon-btn" onClick={() => { setDraft({ ...traveler, alwaysPack: [...(traveler.alwaysPack ?? [])] }); setEditing(true) }} title="Edit">
+        <button className="icon-btn" onClick={() => { setDraft({ ...traveler, alwaysPack: normalizeAlwaysPack(traveler.alwaysPack) }); setEditing(true) }} title="Edit">
           <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M11.5 2.5L13.5 4.5L5 13H3V11L11.5 2.5Z" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>

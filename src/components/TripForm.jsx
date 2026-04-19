@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { v4 as uuid } from 'uuid'
-import { fetchWeatherForecast, summarizeWeather } from '../services/weather'
+import { fetchWeatherForecast, fetchHistoricalClimate, summarizeWeather, summarizeClimate } from '../services/weather'
 import { fetchDestinationPhoto } from '../services/unsplash'
 import { generatePackingList } from '../services/claudeApi'
+import TripDocUpload from './TripDocUpload'
 
 const TRIP_TYPES = ['beach', 'hiking', 'city', 'family visit', 'other']
 const STEPS = ['Getting weather forecast...', 'Finding a destination photo...', 'Asking Claude to pack your bags...']
@@ -14,14 +15,22 @@ export default function TripForm({ travelers, familyRules, trips, onSave, onCanc
   const [tripType, setTripType] = useState('beach')
   const [selectedTravelers, setSelectedTravelers] = useState(travelers.map(t => t.id))
   const [notes, setNotes] = useState('')
+  const [docFilled, setDocFilled] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatingStep, setGeneratingStep] = useState('')
   const [error, setError] = useState('')
 
-  const today = new Date().toISOString().split('T')[0]
-
   function toggleTraveler(id) {
     setSelectedTravelers(sel => sel.includes(id) ? sel.filter(s => s !== id) : [...sel, id])
+  }
+
+  function handleDocApply({ destination: d, startDate: s, endDate: e, tripType: t, notes: n }) {
+    if (d) setDestination(d)
+    if (s) setStartDate(s)
+    if (e) setEndDate(e)
+    if (t && TRIP_TYPES.includes(t)) setTripType(t)
+    if (n) setNotes(prev => prev ? `${prev}\n\n${n}` : n)
+    setDocFilled(true)
   }
 
   async function handleSubmit(e) {
@@ -41,15 +50,21 @@ export default function TripForm({ travelers, familyRules, trips, onSave, onCanc
         .slice(-3)
 
       setGeneratingStep(STEPS[0])
-      const weatherData = await fetchWeatherForecast(destination, startDate, endDate)
-      const weatherSummary = weatherData ? summarizeWeather(weatherData) : 'Weather forecast unavailable.'
+      const forecast = await fetchWeatherForecast(destination, startDate, endDate)
+      let weatherSummary
+      if (forecast?.daily?.temperature_2m_max?.length) {
+        weatherSummary = summarizeWeather(forecast)
+      } else {
+        const climate = await fetchHistoricalClimate(destination, startDate, endDate)
+        weatherSummary = climate ? summarizeClimate(climate) : 'Weather forecast unavailable.'
+      }
 
       setGeneratingStep(STEPS[1])
       const backgroundPhotoUrl = await fetchDestinationPhoto(destination)
 
       setGeneratingStep(STEPS[2])
       const tripParams = { destination, startDate, endDate, tripType, notes }
-      const packingList = await generatePackingList({
+      const { packingList, contextSummary } = await generatePackingList({
         trip: tripParams,
         travelers: tripTravelers,
         familyRules,
@@ -67,6 +82,7 @@ export default function TripForm({ travelers, familyRules, trips, onSave, onCanc
         notes,
         backgroundPhotoUrl,
         weatherSummary,
+        contextSummary,
         packingList,
         debrief: null,
         createdAt: new Date().toISOString()
@@ -100,6 +116,15 @@ export default function TripForm({ travelers, familyRules, trips, onSave, onCanc
 
       {error && <div className="error-banner">{error}</div>}
 
+      {docFilled ? (
+        <div className="doc-filled-banner">
+          <span>Auto-filled from your documents — review and edit below</span>
+          <button type="button" onClick={() => setDocFilled(false)}>Upload more</button>
+        </div>
+      ) : (
+        <TripDocUpload onApply={handleDocApply} />
+      )}
+
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label>Destination</label>
@@ -119,7 +144,6 @@ export default function TripForm({ travelers, familyRules, trips, onSave, onCanc
             <input
               className="form-input"
               type="date"
-              min={today}
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
               required
@@ -130,7 +154,7 @@ export default function TripForm({ travelers, familyRules, trips, onSave, onCanc
             <input
               className="form-input"
               type="date"
-              min={startDate || today}
+              min={startDate}
               value={endDate}
               onChange={e => setEndDate(e.target.value)}
               required

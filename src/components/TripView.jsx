@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import BackgroundPhoto from './BackgroundPhoto'
 import PackingList from './PackingList'
+import PackingChat from './PackingChat'
 import TripDebrief from './TripDebrief'
 import { generatePackingList } from '../services/claudeApi'
 
@@ -29,14 +30,14 @@ export default function TripView({ trip, travelers, familyRules, trips, onUpdate
         )
       ).slice(-3)
 
-      const packingList = await generatePackingList({
+      const { packingList, contextSummary } = await generatePackingList({
         trip,
         travelers: tripTravelers,
         familyRules,
         weatherSummary: trip.weatherSummary ?? 'Weather data unavailable.',
         pastDebriefs
       })
-      onUpdate({ ...trip, packingList })
+      onUpdate({ ...trip, packingList, contextSummary })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -54,6 +55,15 @@ export default function TripView({ trip, travelers, familyRules, trips, onUpdate
       />
 
       <div className="trip-content">
+        {trip.contextSummary && (
+          <div className="trip-context-summary">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M12 8v4M12 16h.01"/>
+            </svg>
+            <p>{trip.contextSummary}</p>
+          </div>
+        )}
         <div className="trip-nav-bar">
           <button className="back-btn" onClick={onBack}>
             <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
@@ -91,11 +101,19 @@ export default function TripView({ trip, travelers, familyRules, trips, onUpdate
         ) : (
           <>
             {activeTab === 'packing' && trip.packingList && (
-              <PackingList
-                packingList={trip.packingList}
-                onUpdate={pl => onUpdate({ ...trip, packingList: pl })}
-                onRegenerate={handleRegenerate}
-              />
+              <>
+                <PackingList
+                  packingList={trip.packingList}
+                  onUpdate={pl => onUpdate({ ...trip, packingList: pl })}
+                  onRegenerate={handleRegenerate}
+                />
+                <div style={{ padding: '0 16px 16px' }}>
+                  <PackingChat
+                    trip={trip}
+                    onUpdate={onUpdate}
+                  />
+                </div>
+              </>
             )}
             {activeTab === 'debrief' && (
               <TripDebrief

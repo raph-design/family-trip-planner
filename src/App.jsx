@@ -5,6 +5,7 @@ import FamilyRules from './components/FamilyRules'
 import TripForm from './components/TripForm'
 import TripView from './components/TripView'
 import PasswordGate from './components/PasswordGate'
+import Instructions from './components/Instructions'
 import './App.css'
 
 export default function App() {
@@ -63,7 +64,7 @@ function AppContent() {
   }
 
   const activeTrip = view.type === 'trip' ? trips.find(t => t.id === view.tripId) : null
-  const activeTab = ['travelers', 'rules'].includes(view.type) ? view.type : 'trips'
+  const activeTab = ['instructions', 'travelers', 'rules'].includes(view.type) ? view.type : 'trips'
 
   const upcomingTrips = trips
     .filter(t => new Date(t.endDate + 'T23:59:59') >= new Date())
@@ -106,6 +107,8 @@ function AppContent() {
   return (
     <div className="app-shell">
       <div className="main-content">
+        {activeTab === 'instructions' && <Instructions />}
+
         {activeTab === 'trips' && (
           <div className="section">
             <div className="section-header">
@@ -188,6 +191,18 @@ function AppContent() {
       </div>
 
       <nav className="bottom-nav">
+        <button
+          className={`nav-btn${activeTab === 'instructions' ? ' active' : ''}`}
+          onClick={() => { exitSelectMode(); setView({ type: 'instructions' }) }}
+        >
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9"/>
+            <line x1="12" y1="11" x2="12" y2="17"/>
+            <circle cx="12" cy="7.75" r="0.6" fill="currentColor" stroke="none"/>
+          </svg>
+          <span>Guide</span>
+        </button>
+
         <button
           className={`nav-btn${activeTab === 'trips' ? ' active' : ''}`}
           onClick={() => { exitSelectMode(); setView({ type: 'trips' }) }}

@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocalStorage } from './hooks/useLocalStorage'
+import { fetchDestinationPhoto } from './services/unsplash'
 import TravelerProfiles from './components/TravelerProfiles'
 import FamilyRules from './components/FamilyRules'
 import TripForm from './components/TripForm'
@@ -45,6 +46,24 @@ function AppContent() {
   function updateTrip(updatedTrip) {
     setTrips(ts => ts.map(t => t.id === updatedTrip.id ? updatedTrip : t))
   }
+
+  const photoAttemptsRef = useRef(new Set())
+  useEffect(() => {
+    const targets = trips.filter(
+      t => !t.backgroundPhotoUrl && !photoAttemptsRef.current.has(t.id)
+    )
+    if (targets.length === 0) return
+    let cancelled = false
+    ;(async () => {
+      for (const t of targets) {
+        photoAttemptsRef.current.add(t.id)
+        const url = await fetchDestinationPhoto(t.destination)
+        if (cancelled || !url) continue
+        setTrips(ts => ts.map(x => x.id === t.id ? { ...x, backgroundPhotoUrl: url } : x))
+      }
+    })()
+    return () => { cancelled = true }
+  }, [trips, setTrips])
 
   function exitSelectMode() {
     setSelectMode(false)

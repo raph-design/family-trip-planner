@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocalStorage } from './hooks/useLocalStorage'
+import { useWorkspace } from './hooks/useWorkspace'
 import { fetchDestinationPhoto } from './services/unsplash'
 import TravelerProfiles from './components/TravelerProfiles'
 import FamilyRules from './components/FamilyRules'
@@ -10,13 +10,16 @@ import Instructions from './components/Instructions'
 import './App.css'
 
 export default function App() {
-  const appPassword = import.meta.env.VITE_APP_PASSWORD ?? ''
   const [unlockToken, setUnlockToken] = useState(() => {
     try { return localStorage.getItem('ftp_unlock') ?? '' } catch { return '' }
   })
-  const isUnlocked = !!appPassword && unlockToken === appPassword
 
-  if (!isUnlocked) {
+  function handleSignOut() {
+    try { localStorage.removeItem('ftp_unlock') } catch { /* ignore */ }
+    setUnlockToken('')
+  }
+
+  if (!unlockToken) {
     return (
       <PasswordGate
         onUnlock={pw => {
@@ -27,16 +30,27 @@ export default function App() {
     )
   }
 
-  return <AppContent />
+  return <AppContent onSignOut={handleSignOut} />
 }
 
-function AppContent() {
-  const [travelers, setTravelers] = useLocalStorage('ftp_travelers', [])
-  const [familyRules, setFamilyRules] = useLocalStorage('ftp_rules', [])
-  const [trips, setTrips] = useLocalStorage('ftp_trips', [])
+function AppContent({ onSignOut }) {
+  const {
+    trips,
+    travelers,
+    rules: familyRules,
+    setTrips,
+    setTravelers,
+    setRules: setFamilyRules,
+    status: workspaceStatus,
+    error: workspaceError,
+  } = useWorkspace()
   const [view, setView] = useState({ type: 'trips' })
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState([])
+
+  useEffect(() => {
+    if (workspaceStatus === 'unauthorized') onSignOut()
+  }, [workspaceStatus, onSignOut])
 
   function saveTrip(newTrip) {
     setTrips(ts => [...ts, newTrip])
@@ -126,6 +140,9 @@ function AppContent() {
   return (
     <div className="app-shell">
       <div className="main-content">
+        {workspaceStatus === 'offline' && workspaceError && (
+          <div className="error-banner">Offline — showing cached data. Changes will not sync until reconnected.</div>
+        )}
         {activeTab === 'instructions' && <Instructions />}
 
         {activeTab === 'trips' && (

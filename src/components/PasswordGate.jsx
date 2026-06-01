@@ -3,20 +3,34 @@ import { useState } from 'react'
 export default function PasswordGate({ onUnlock }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
-  const correctPassword = import.meta.env.VITE_APP_PASSWORD ?? ''
+  const [checking, setChecking] = useState(false)
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
-    if (!correctPassword) {
-      setError('Password is not configured. Set VITE_APP_PASSWORD in .env and restart.')
-      return
+    if (!password) return
+    setChecking(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/workspace', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${password}` },
+      })
+      if (res.ok) {
+        onUnlock(password)
+        return
+      }
+      if (res.status === 401) {
+        setError('wrong')
+        setPassword('')
+        return
+      }
+      const body = await res.json().catch(() => ({}))
+      setError(body.error?.message || `Server error (${res.status})`)
+    } catch (err) {
+      setError(err.message || 'Network error — try again.')
+    } finally {
+      setChecking(false)
     }
-    if (password === correctPassword) {
-      onUnlock(password)
-      return
-    }
-    setError('wrong')
-    setPassword('')
   }
 
   return (
@@ -40,14 +54,15 @@ export default function PasswordGate({ onUnlock }) {
             placeholder="Password"
             autoFocus
             autoComplete="current-password"
+            disabled={checking}
           />
           {error && (
             <p className="password-error">
               {error === 'wrong' ? "That password isn't quite right — try again." : error}
             </p>
           )}
-          <button type="submit" className="btn-primary full-width" disabled={!password}>
-            Let's go
+          <button type="submit" className="btn-primary full-width" disabled={!password || checking}>
+            {checking ? 'Checking…' : "Let's go"}
           </button>
         </form>
       </div>
